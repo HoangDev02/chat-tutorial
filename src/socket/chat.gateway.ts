@@ -12,11 +12,11 @@ import { Server, Socket } from 'socket.io';
 @WebSocketGateway(81, { transports: ['websocket'], cors: true })
 export class ChatGateway
   implements OnGatewayConnection, OnGatewayInit, OnGatewayDisconnect {
-  
+
   @WebSocketServer() server: Server;
   private clients: Map<string, string> = new Map(); // Store client IDs
 
-  constructor(private chatService: ChatService) {}
+  constructor(private chatService: ChatService) { }
 
   afterInit(server: Server) {
     console.log('Initialized');
@@ -41,27 +41,45 @@ export class ChatGateway
   // Sự kiện để client đăng ký userId
   @SubscribeMessage('register')
   handleRegister(client: Socket, payload: { userId: string }) {
+    // Check if userId already exists in clients
+    if (this.clients.has(payload.userId)) {
+      console.log(`UserId ${payload.userId} is already registered with socketId: ${this.clients.get(payload.userId)}`);
+      return; // Do not register again
+    }
+
     console.log(`Registering userId: ${payload.userId} with socketId: ${client.id}`);
     this.clients.set(payload.userId, client.id);
   }
-
   @SubscribeMessage('sendMessage')
-  async handleMessage(client: Socket, payload: { to: string; message: string }) {
+  @SubscribeMessage('sendMessage')
+  async handleMessage(client: Socket, payload: { from: string; to: string; message: string }) {
     const encryptedMessage = await this.chatService.encryptMessage(payload.message);
     await this.chatService.saveMessage(payload.to, encryptedMessage);
 
-    console.log('Sending message to:', payload.to);
-    console.log('Encrypted message:', encryptedMessage);
+    // Lấy socketId của người nhận (User B)
+    const recipientSocketId = this.clients.get(payload.to);
     
-    // Get the recipient's socket ID
-    const recipientSocketId = payload.to ? this.clients.get(payload.to) : undefined;
- 
-    
+    // Lấy socketId của người gửi (User A)
+    const senderSocketId = this.clients.get(payload.from);
+
+    // Nội dung tin nhắn gửi đi
+    const messageData = {
+      from: payload.from,  // Người gửi
+      to: payload.to,      // Người nhận
+      message: payload.message, // Nội dung tin nhắn
+      timestamp: new Date(), // Thời gian gửi tin nhắn
+    };
+
+    // Gửi tin nhắn cho người nhận (User B)
     if (recipientSocketId) {
-      // Send the message to the recipient
-      this.server.to(recipientSocketId).emit('receiveMessage', payload.message);
-    } else {
-      console.log('Recipient not connected');
+      this.server.to(recipientSocketId).emit('receiveMessage', messageData);
+    }
+
+    // Gửi lại tin nhắn cho người gửi (User A)
+    if (senderSocketId) {
+      this.server.to(senderSocketId).emit('receiveMessage', messageData);
     }
   }
+
+
 }

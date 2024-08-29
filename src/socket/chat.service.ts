@@ -17,8 +17,18 @@ export class ChatService {
     const encrypted = Buffer.concat([cipher.update(message), cipher.final()]);
     return encrypted.toString('hex');
   }
+
   async saveMessage(to: string, message: string) {
-    const newMessage = new this.messageModel({ to, message });
-    return newMessage.save();
+    const user = await this.messageModel.findOne({ to: to });
+    if (!user) {
+      const newUser = new this.messageModel({ to, message: [message] }); // Tạo mảng messages khi user chưa tồn tại
+      return newUser.save();
+    }
+    // Nếu user đã tồn tại, push message mới vào mảng messages
+    return this.messageModel.updateMany(
+      { to },
+      { $push: { message: message } } // $push message vào mảng messages
+    );
   }
+  
 }
